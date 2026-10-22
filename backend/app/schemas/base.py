@@ -15,7 +15,7 @@ class CamelModel(BaseModel):
 
 
 def iso(value: Optional[datetime]) -> Optional[str]:
-    return value.isoformat(sep=" ", timespec="seconds") if value else None
+    return value.isoformat() if value else None
 
 
 def page_result(items: list[Any], total: int, page: int, page_size: int) -> dict[str, Any]:
