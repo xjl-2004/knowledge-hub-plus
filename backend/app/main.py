@@ -15,7 +15,8 @@ from app.db import redis as redis_db
 from app.db import s3 as s3_db
 from app.mq import rabbit as rabbit_db
 from app.mq import consumer
-from app.routers import auth, documents, permissions, roles, teams, users
+from app.pipeline import search_index, vector_index
+from app.routers import ai, auth, documents, permissions, roles, search, teams, users
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +28,11 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         await s3_db.ensure_bucket()
     except Exception as exc:  # pragma: no cover - 依赖外部服务
         logger.warning("对象存储初始化跳过：%s", exc)
+    try:
+        await search_index.ensure_index()
+        await vector_index.ensure_index()
+    except Exception as exc:  # pragma: no cover - 依赖外部服务
+        logger.warning("检索索引初始化跳过：%s", exc)
     consumer.register_handlers()
     try:
         await rabbit_db.initialize()
@@ -66,6 +72,8 @@ def create_app() -> FastAPI:
         permissions.router,
         teams.router,
         documents.router,
+        search.router,
+        ai.router,
     ):
         app.include_router(router)
 
