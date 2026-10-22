@@ -13,7 +13,7 @@ from app.db import mongo as mongo_db
 from app.db import neo4j as neo4j_db
 from app.db import redis as redis_db
 from app.db import s3 as s3_db
-from app.routers import auth
+from app.routers import auth, permissions, roles, users
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +51,8 @@ def create_app() -> FastAPI:
     )
     register_exception_handlers(app)
 
-    app.include_router(auth.router)
+    for router in (auth.router, users.router, roles.router, permissions.router):
+        app.include_router(router)
 
     @app.get("/")
     async def root() -> dict[str, str]:
