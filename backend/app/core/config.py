@@ -74,6 +74,8 @@ class Settings(BaseSettings):
 
     # LLM
     kg_llm_timeout_ms: int = 120000
+    kg_max_entities: int = 12
+    kg_max_relations: int = 15
     ai_chat_timeout_ms: int = 60000
     ai_query_rewrite_timeout_ms: int = 15000
     openai_api_key: str | None = None

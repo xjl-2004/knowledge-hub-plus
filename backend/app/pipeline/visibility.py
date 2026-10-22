@@ -41,3 +41,19 @@ def wrap_es_query(
     if filter_clause is None:
         return query
     return {"bool": {"must": [query], "filter": [filter_clause]}}
+
+
+def neo4j_access_params(scope: Any = None) -> dict[str, Any]:
+    return {
+        "unrestricted": scope is None or scope.unrestricted,
+        "accessUserId": scope.user_id if scope else "",
+        "accessTeamIds": list(scope.team_ids) if scope else [],
+    }
+
+
+def neo4j_document_access_where(alias: str = "d") -> str:
+    """Cypher：文档节点是否对当前用户可见。"""
+    return (
+        f"($unrestricted OR {alias}.authorId = $accessUserId "
+        f"OR {alias}.isPublic = true OR {alias}.teamId IN $accessTeamIds)"
+    )

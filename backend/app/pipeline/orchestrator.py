@@ -11,10 +11,13 @@ from sqlalchemy import select
 from app.db import mongo as mongo_db
 from app.db.session import SessionLocal
 from app.models import Document
-from app.pipeline import chunking, embedding, search_index, vector_index
+from app.pipeline import chunking, embedding, graph_build, search_index, vector_index
 from app.pipeline.types import PipelineDocument
 
 logger = logging.getLogger(__name__)
+
+# 与文档状态机保持一致：1 = 已发布
+PUBLISHED_STATUS = 1
 
 
 def _iso(value: datetime | None) -> str | None:
@@ -79,6 +82,22 @@ async def _load_documents(document_ids: list[str]) -> list[PipelineDocument]:
         row = by_id.get(str(document_id))
         if row is None:
             continue
+        content = await _fetch_content(row.content_id)
+        documents.append(_to_pipeline_document(row, content))
+    return documents
+
+
+async def _load_all_published() -> list[PipelineDocument]:
+    async with SessionLocal() as db:
+        result = await db.execute(
+            select(Document).where(
+                Document.deleted.is_(False), Document.status == PUBLISHED_STATUS
+            )
+        )
+        rows = result.scalars().all()
+
+    documents: list[PipelineDocument] = []
+    for row in rows:
         content = await _fetch_content(row.content_id)
         documents.append(_to_pipeline_document(row, content))
     return documents
@@ -165,7 +184,25 @@ async def handle_search_index(
 async def handle_kg_build(
     action: str | None, document_ids: list[str] | None = None
 ) -> None:
-    logger.info("KG 任务：type=%s, documentIds=%s", action, document_ids or [])
+    """KG 建图：BUILD_* 抽实体关系入图，DELETE_* 清理文档子图。"""
+    if action == "DELETE_BY_DOC_IDS" and document_ids:
+        for document_id in document_ids:
+            await graph_build.delete_for_document(document_id)
+        return
+
+    if action == "BUILD_ALL":
+        documents = await _load_all_published()
+    elif action == "BUILD_BY_DOC_IDS" and document_ids:
+        documents = await _load_documents(document_ids)
+    else:
+        documents = []
+
+    if not documents:
+        logger.warning("忽略未支持或空的 KG 消息：type=%s", action)
+        return
+
+    logger.info("KG 开始建图：type=%s, total=%s", action, len(documents))
+    await graph_build.build_batch(documents)
 
 
 async def update_visibility(doc: Document) -> None:
@@ -186,6 +223,7 @@ async def update_visibility(doc: Document) -> None:
     await asyncio.gather(
         search_index.update_visibility(document_id, visibility),
         vector_index.update_visibility(document_id, visibility),
+        graph_build.update_visibility(document_id, visibility),
     )
 
 

@@ -50,6 +50,29 @@ class ChunkHit:
 
 
 @dataclass
+class ExtractedEntity:
+    name: str
+    type: str
+    description: str = ""
+    aliases: list[str] = field(default_factory=list)
+
+
+@dataclass
+class ExtractedRelation:
+    source: str
+    target: str
+    relation: str
+    weight: float = 0.5
+
+
+@dataclass
+class ExtractionResult:
+    chunk_id: str | None = None
+    entities: list[ExtractedEntity] = field(default_factory=list)
+    relations: list[ExtractedRelation] = field(default_factory=list)
+
+
+@dataclass
 class PipelineDocument:
     """Postgres 元数据 + Mongo 正文的合并快照。"""
 

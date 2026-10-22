@@ -16,7 +16,17 @@ from app.db import s3 as s3_db
 from app.mq import rabbit as rabbit_db
 from app.mq import consumer
 from app.pipeline import search_index, vector_index
-from app.routers import ai, auth, documents, permissions, roles, search, teams, users
+from app.routers import (
+    ai,
+    auth,
+    documents,
+    graph,
+    permissions,
+    roles,
+    search,
+    teams,
+    users,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -73,6 +83,7 @@ def create_app() -> FastAPI:
         teams.router,
         documents.router,
         search.router,
+        graph.router,
         ai.router,
     ):
         app.include_router(router)
