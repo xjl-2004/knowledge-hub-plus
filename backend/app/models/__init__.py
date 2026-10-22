@@ -1,0 +1,31 @@
+from app.models.entities import (
+    AiMessage,
+    AiSession,
+    Base,
+    Document,
+    DocumentReview,
+    Permission,
+    Role,
+    RolePermission,
+    Team,
+    TeamMember,
+    User,
+    UserPermission,
+    UserRole,
+)
+
+__all__ = [
+    "AiMessage",
+    "AiSession",
+    "Base",
+    "Document",
+    "DocumentReview",
+    "Permission",
+    "Role",
+    "RolePermission",
+    "Team",
+    "TeamMember",
+    "User",
+    "UserPermission",
+    "UserRole",
+]
