@@ -35,3 +35,7 @@ class UploadParseDto(CamelModel):
     tags: str | None = None
     remark: str | None = None
     is_public: bool | None = None
+
+
+class ReviewDecisionDto(CamelModel):
+    review_comment: str | None = None

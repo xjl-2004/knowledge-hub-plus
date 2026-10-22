@@ -1,4 +1,4 @@
-import logging
+﻿import logging
 import re
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -235,7 +235,7 @@ async def create(
         raise
 
     if requested_status == DOCUMENT_PUBLISHED:
-        await _safe_publish(doc)
+        await safe_publish(doc)
 
     return document_vo(doc, dto.content)
 
@@ -501,15 +501,11 @@ async def publish(
         raise bad_request("文档审核中，请等待审核结果")
 
     if require_approval() and doc.status in (DOCUMENT_DRAFT, DOCUMENT_PUBLISHED):
-        previous_status = doc.status
-        doc.status = DOCUMENT_PENDING_REVIEW
-        doc.update_by = int(actor.user_id)
-        doc.updated_at = datetime.now()
-        await db.commit()
-        if previous_status == DOCUMENT_PUBLISHED:
-            await _safe_unpublish(document_id)
-        content = await _load_content(doc.content_id)
-        return document_vo(doc, content)
+        from app.services import reviews
+
+        saved = await reviews.submit_for_review(db, document_id, actor)
+        content = await _load_content(saved.content_id)
+        return document_vo(saved, content)
 
     return await direct_publish(db, document_id, actor)
 
@@ -534,7 +530,7 @@ async def direct_publish(
     await db.commit()
 
     content = await _load_content(doc.content_id)
-    await _safe_publish(doc)
+    await safe_publish(doc)
     logger.info("文档发布成功：documentId=%s", document_id)
     return document_vo(doc, content)
 
@@ -551,7 +547,7 @@ async def archive(
     doc.update_by = int(actor.user_id)
     doc.updated_at = datetime.now()
     await db.commit()
-    await _safe_unpublish(document_id)
+    await safe_unpublish(document_id)
     logger.info("文档已归档：documentId=%s", document_id)
     return document_vo(doc)
 
@@ -568,7 +564,7 @@ async def save_as_draft(
     doc.update_by = int(actor.user_id)
     doc.updated_at = datetime.now()
     await db.commit()
-    await _safe_unpublish(document_id)
+    await safe_unpublish(document_id)
     logger.info("文档已保存为草稿：documentId=%s", document_id)
     return document_vo(doc)
 
@@ -580,7 +576,7 @@ async def remove(
     assert_writable(doc, actor)
 
     if doc.status == DOCUMENT_PUBLISHED:
-        await _safe_unpublish(document_id)
+        await safe_unpublish(document_id)
 
     doc.deleted = True
     doc.update_by = int(actor.user_id)
@@ -605,24 +601,24 @@ async def _sync_after_update(
     is_published = doc.status == DOCUMENT_PUBLISHED
 
     if was_published and not is_published:
-        await _safe_unpublish(str(doc.id))
+        await safe_unpublish(str(doc.id))
         return
 
     if is_published and content_changed and not require_approval():
-        await _safe_publish(doc)
+        await safe_publish(doc)
         return
 
     if is_published and visibility_changed:
-        await _safe_update_visibility(doc)
+        await safe_update_visibility(doc)
 
 
-async def _safe_publish(doc: Document) -> None:
+async def safe_publish(doc: Document) -> None:
     logger.info("文档索引同步：documentId=%s", doc.id)
 
 
-async def _safe_unpublish(document_id: str) -> None:
+async def safe_unpublish(document_id: str) -> None:
     logger.info("文档索引清理：documentId=%s", document_id)
 
 
-async def _safe_update_visibility(doc: Document) -> None:
+async def safe_update_visibility(doc: Document) -> None:
     logger.info("文档可见性同步：documentId=%s", doc.id)

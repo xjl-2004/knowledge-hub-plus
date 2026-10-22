@@ -1,9 +1,20 @@
 from fastapi import APIRouter, Depends, File, Form, Query, UploadFile
 
-from app.core.deps import CurrentUser, DbSession, require_permissions
+from app.core.deps import (
+    CurrentUser,
+    DbSession,
+    require_permissions,
+    require_roles_and_permissions,
+)
 from app.core.errors import bad_request
-from app.schemas.documents import CreateDocumentDto, UpdateDocumentDto, UploadParseDto
-from app.services import documents
+from app.schemas.documents import (
+    CreateDocumentDto,
+    ReviewDecisionDto,
+    UpdateDocumentDto,
+    UploadParseDto,
+)
+from app.services import documents, reviews
+from app.services.accounts import ROLE_ADMIN, ROLE_REVIEWER
 
 MAX_UPLOAD_SIZE = 50 * 1024 * 1024
 
@@ -12,6 +23,14 @@ document_list = [Depends(require_permissions("document:list"))]
 document_create = [Depends(require_permissions("document:create"))]
 document_edit = [Depends(require_permissions("document:edit"))]
 document_delete = [Depends(require_permissions("document:delete"))]
+review_read = [Depends(require_permissions("document:list", "document:review"))]
+review_task = [
+    Depends(
+        require_roles_and_permissions(
+            (ROLE_ADMIN, ROLE_REVIEWER), ("document:review",)
+        )
+    )
+]
 
 
 @router.post("", dependencies=document_create)
@@ -51,6 +70,49 @@ async def upload_and_parse(
         meta,
         user,
     )
+
+
+@router.get("/reviews/tasks", dependencies=review_task)
+async def list_review_tasks(
+    db: DbSession,
+    status: str | None = Query(None),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100, alias="pageSize"),
+):
+    return await reviews.list_tasks(db, status, page, page_size)
+
+
+@router.get("/reviews/tasks/pending-count", dependencies=review_task)
+async def pending_review_count(db: DbSession):
+    return await reviews.get_pending_count(db)
+
+
+@router.post("/reviews/tasks/{task_id}/approve", dependencies=review_task)
+async def approve_review(
+    task_id: str, db: DbSession, user: CurrentUser, dto: ReviewDecisionDto
+):
+    doc = await reviews.approve_review(
+        db,
+        task_id,
+        user.user_id,
+        user.real_name or user.username,
+        dto.review_comment,
+    )
+    return documents.document_vo(doc)
+
+
+@router.post("/reviews/tasks/{task_id}/reject", dependencies=review_task)
+async def reject_review(
+    task_id: str, db: DbSession, user: CurrentUser, dto: ReviewDecisionDto
+):
+    doc = await reviews.reject_review(
+        db,
+        task_id,
+        dto.review_comment or "",
+        user.user_id,
+        user.real_name or user.username,
+    )
+    return documents.document_vo(doc)
 
 
 @router.get("", dependencies=document_list)
@@ -93,6 +155,24 @@ async def save_document_as_draft(
     document_id: str, db: DbSession, user: CurrentUser
 ):
     return await documents.save_as_draft(db, document_id, user)
+
+
+@router.post("/{document_id}/reviews/submit", dependencies=document_edit)
+async def submit_document_review(
+    document_id: str, db: DbSession, user: CurrentUser
+):
+    doc = await reviews.submit_for_review(db, document_id, user)
+    return documents.document_vo(doc)
+
+
+@router.get("/{document_id}/reviews/current", dependencies=review_read)
+async def get_current_review(document_id: str, db: DbSession):
+    return await reviews.get_current_review(db, document_id)
+
+
+@router.get("/{document_id}/reviews/history", dependencies=review_read)
+async def get_review_history(document_id: str, db: DbSession):
+    return await reviews.get_review_history(db, document_id)
 
 
 @router.get("/{document_id}", dependencies=document_list)
