@@ -1,8 +1,11 @@
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, File, Form, Query, UploadFile
 
 from app.core.deps import CurrentUser, DbSession, require_permissions
-from app.schemas.documents import CreateDocumentDto, UpdateDocumentDto
+from app.core.errors import bad_request
+from app.schemas.documents import CreateDocumentDto, UpdateDocumentDto, UploadParseDto
 from app.services import documents
+
+MAX_UPLOAD_SIZE = 50 * 1024 * 1024
 
 router = APIRouter(prefix="/documents", tags=["documents"])
 document_list = [Depends(require_permissions("document:list"))]
@@ -14,6 +17,40 @@ document_delete = [Depends(require_permissions("document:delete"))]
 @router.post("", dependencies=document_create)
 async def create_document(db: DbSession, dto: CreateDocumentDto, user: CurrentUser):
     return await documents.create(db, dto, user)
+
+
+@router.post("/upload/parse", dependencies=document_create)
+async def upload_and_parse(
+    db: DbSession,
+    user: CurrentUser,
+    file: UploadFile = File(...),
+    category_id: str | None = Form(None, alias="categoryId"),
+    team_id: str | None = Form(None, alias="teamId"),
+    tags: str | None = Form(None),
+    remark: str | None = Form(None),
+    is_public: bool | None = Form(None, alias="isPublic"),
+):
+    data = await file.read()
+    if len(data) > MAX_UPLOAD_SIZE:
+        raise bad_request("文件大小超过 50MB 限制")
+    if not data:
+        raise bad_request("请上传文件（form-data 字段名: file）")
+
+    meta = UploadParseDto(
+        category_id=category_id,
+        team_id=team_id,
+        tags=tags,
+        remark=remark,
+        is_public=is_public,
+    )
+    return await documents.upload_and_create_document(
+        db,
+        data,
+        file.filename or "",
+        file.content_type or "application/octet-stream",
+        meta,
+        user,
+    )
 
 
 @router.get("", dependencies=document_list)

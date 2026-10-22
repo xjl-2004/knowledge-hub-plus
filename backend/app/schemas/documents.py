@@ -27,3 +27,11 @@ class UpdateDocumentDto(CamelModel):
     status: int | None = Field(None, ge=0, le=3)
     remark: str | None = None
     is_public: bool | None = None
+
+
+class UploadParseDto(CamelModel):
+    category_id: str | None = None
+    team_id: str | None = None
+    tags: str | None = None
+    remark: str | None = None
+    is_public: bool | None = None

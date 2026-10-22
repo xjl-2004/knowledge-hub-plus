@@ -1,5 +1,8 @@
 import logging
+import re
+import uuid
 from contextlib import asynccontextmanager
+from datetime import datetime
 from typing import AsyncIterator
 
 import aioboto3
@@ -10,6 +13,10 @@ from app.core.config import settings
 logger = logging.getLogger(__name__)
 
 _session = aioboto3.Session()
+
+
+def is_enabled() -> bool:
+    return settings.rustfs_enabled
 
 
 @asynccontextmanager
@@ -50,6 +57,41 @@ async def put_object(key: str, body: bytes, content_type: str | None = None) -> 
 
 def public_url(key: str) -> str:
     return f"{settings.rustfs_public_url.rstrip('/')}/{settings.rustfs_bucket}/{key}"
+
+
+def _sanitize_base_name(file_name: str) -> str:
+    base = re.sub(r"\.[^.]+$", "", file_name) or "file"
+    base = re.sub(r"[^\w\u4e00-\u9fff.-]+", "_", base)
+    return base[:64]
+
+
+def _guess_extension(content_type: str) -> str:
+    return {
+        "image/png": ".png",
+        "image/jpeg": ".jpg",
+        "image/webp": ".webp",
+        "application/pdf": ".pdf",
+    }.get(content_type, "")
+
+
+async def upload_bytes(
+    data: bytes,
+    file_name: str,
+    content_type: str,
+    prefix: str = "documents",
+) -> str:
+    await ensure_bucket()
+    today = datetime.now()
+    date_path = f"{today.year}/{today.month:02d}/{today.day:02d}"
+    extension = re.search(r"\.[^.]+$", file_name)
+    ext = extension.group(0) if extension else _guess_extension(content_type)
+    key = (
+        f"{prefix.strip('/')}/{date_path}/"
+        f"{_sanitize_base_name(file_name)}-{uuid.uuid4().hex}{ext}"
+    )
+    await put_object(key, data, content_type)
+    logger.info("对象存储上传成功: key=%s, size=%s", key, len(data))
+    return public_url(key)
 
 
 async def ping() -> bool:

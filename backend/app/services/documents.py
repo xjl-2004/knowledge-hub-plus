@@ -13,10 +13,19 @@ from app.core.deps import AuthUser
 from app.core.errors import bad_request, forbidden, not_found
 from app.core.snowflake import next_id
 from app.db import mongo as mongo_db
+from app.db import s3 as s3_db
 from app.models import Document
 from app.schemas.base import iso, page_result
-from app.schemas.documents import CreateDocumentDto, UpdateDocumentDto
+from app.schemas.documents import CreateDocumentDto, UpdateDocumentDto, UploadParseDto
 from app.services import accounts
+from app.services.parsing import (
+    decode_upload_filename,
+    get_extension,
+    is_supported,
+    parse_file,
+    supported_list,
+    title_from_filename,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -229,6 +238,88 @@ async def create(
         await _safe_publish(doc)
 
     return document_vo(doc, dto.content)
+
+
+async def upload_and_create_document(
+    db: AsyncSession,
+    data: bytes,
+    original_name: str,
+    content_type: str,
+    meta: UploadParseDto,
+    actor: AuthUser,
+) -> dict[str, Any]:
+    if not data:
+        raise bad_request("文件不能为空")
+
+    filename = decode_upload_filename(original_name)
+    extension = get_extension(filename)
+    if not is_supported(extension):
+        raise bad_request(
+            f"不支持的文件格式: {extension}，支持的格式: {supported_list()}"
+        )
+
+    logger.info(
+        "上传并解析文件：name=%s, size=%s, ext=%s", filename, len(data), extension
+    )
+
+    async def upload_image(payload: bytes, file_name: str, image_type: str) -> str:
+        return await s3_db.upload_bytes(
+            payload, file_name, image_type, prefix="pdf-images"
+        )
+
+    try:
+        content = await parse_file(
+            data,
+            filename,
+            upload_image if s3_db.is_enabled() else None,
+        )
+    except ValueError as exc:
+        raise bad_request(str(exc))
+    except Exception as exc:
+        logger.exception("文件解析失败：name=%s", filename)
+        raise bad_request(f"文件解析失败: {exc}")
+
+    file_url: str | None = None
+    if s3_db.is_enabled():
+        try:
+            file_url = await s3_db.upload_bytes(
+                data,
+                filename,
+                content_type or "application/octet-stream",
+                prefix="documents",
+            )
+        except Exception as exc:
+            logger.error("原文件上传失败：%s", exc)
+            raise bad_request(f"原文件上传失败: {exc}")
+    else:
+        logger.warning("对象存储未启用，跳过原文件上传")
+
+    title = title_from_filename(filename)
+    created = await create(
+        db,
+        CreateDocumentDto(
+            title=title,
+            content=content,
+            category_id=meta.category_id,
+            team_id=meta.team_id,
+            tags=meta.tags,
+            remark=meta.remark,
+            is_public=meta.is_public,
+            status=DOCUMENT_DRAFT,
+        ),
+        actor,
+    )
+
+    return {
+        "documentId": created["id"],
+        "title": title,
+        "fileUrl": file_url,
+        "fileSize": len(data),
+        "fileExtension": extension,
+        "contentLength": len(content),
+        "contentPreview": content[:200],
+        "status": DOCUMENT_DRAFT,
+    }
 
 
 async def find_all(
