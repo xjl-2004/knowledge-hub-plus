@@ -15,6 +15,8 @@ from app.core.snowflake import next_id
 from app.db import mongo as mongo_db
 from app.db import s3 as s3_db
 from app.models import Document
+from app.mq import publisher
+from app.pipeline import orchestrator
 from app.schemas.base import iso, page_result
 from app.schemas.documents import CreateDocumentDto, UpdateDocumentDto, UploadParseDto
 from app.services import accounts
@@ -613,12 +615,25 @@ async def _sync_after_update(
 
 
 async def safe_publish(doc: Document) -> None:
-    logger.info("文档索引同步：documentId=%s", doc.id)
+    try:
+        await publisher.after_publish(doc)
+    except Exception as exc:
+        logger.warning(
+            "索引投递失败（不影响文档状态）：documentId=%s, %s", doc.id, exc
+        )
 
 
 async def safe_unpublish(document_id: str) -> None:
-    logger.info("文档索引清理：documentId=%s", document_id)
+    try:
+        await publisher.after_unpublish(document_id)
+    except Exception as exc:
+        logger.warning("索引清理投递失败：documentId=%s, %s", document_id, exc)
 
 
 async def safe_update_visibility(doc: Document) -> None:
-    logger.info("文档可见性同步：documentId=%s", doc.id)
+    try:
+        await orchestrator.update_visibility(doc)
+    except Exception as exc:
+        logger.warning(
+            "可见性同步失败（不影响文档保存）：documentId=%s, %s", doc.id, exc
+        )

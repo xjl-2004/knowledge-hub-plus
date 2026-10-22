@@ -13,6 +13,8 @@ from app.db import mongo as mongo_db
 from app.db import neo4j as neo4j_db
 from app.db import redis as redis_db
 from app.db import s3 as s3_db
+from app.mq import rabbit as rabbit_db
+from app.mq import consumer
 from app.routers import auth, documents, permissions, roles, teams, users
 
 logger = logging.getLogger(__name__)
@@ -25,7 +27,13 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         await s3_db.ensure_bucket()
     except Exception as exc:  # pragma: no cover - 依赖外部服务
         logger.warning("对象存储初始化跳过：%s", exc)
+    consumer.register_handlers()
+    try:
+        await rabbit_db.initialize()
+    except Exception as exc:  # pragma: no cover - 依赖外部服务
+        logger.warning("消息队列初始化跳过：%s", exc)
     yield
+    await rabbit_db.close()
     await mongo_db.close()
     await redis_db.close()
     await es_db.close()
