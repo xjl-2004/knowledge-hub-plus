@@ -84,7 +84,7 @@ class Settings(BaseSettings):
     llm_base_url: str | None = None
     model_name: str | None = None
     llm_model: str | None = None
-    llm_enable_thinking: bool = False
+    llm_enable_thinking: bool = True
 
     # Web search
     bocha_api_key: str | None = None
